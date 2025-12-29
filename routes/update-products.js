@@ -3,30 +3,34 @@ import express from "express";
 
 const router = express.Router();
 
+// Helper para llamadas JSON-RPC
+async function odooCall(params) {
+  const payload = {
+    jsonrpc: "2.0",
+    method: "call",
+    params,
+    id: Date.now()
+  };
+
+  const response = await fetch(process.env.ODOO_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+
+  return response.json();
+}
+
+// Helper para Many2many
+function m2m(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return [[6, false, value]];
+  return [[6, false, [value]]];
+}
+
 router.post("/", async (req, res) => {
-  const { ODOO_URL, ODOO_DB, ODOO_UID, ODOO_PASSWORD } = process.env;
+  const { ODOO_DB, ODOO_UID, ODOO_PASSWORD } = process.env;
   const products = req.body.products;
-
-  if (!Array.isArray(products)) {
-    return res.status(400).json({ error: "Se esperaba un array 'products'" });
-  }
-
-  async function odooCall(params) {
-    const payload = {
-      jsonrpc: "2.0",
-      method: "call",
-      params,
-      id: Date.now()
-    };
-
-    const response = await fetch(ODOO_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    return response.json();
-  }
 
   const results = [];
 
@@ -34,27 +38,47 @@ router.post("/", async (req, res) => {
     const { default_code, name, list_price, standard_price, taxes_id, supplier_taxes_id } = p;
 
     try {
-      // Buscar si existe por default_code
-      const search = await odooCall({
+      // 1. Buscar variante por default_code
+      const searchVariant = await odooCall({
         service: "object",
         method: "execute_kw",
         args: [
           ODOO_DB,
           parseInt(ODOO_UID),
           ODOO_PASSWORD,
-          "product.template",
+          "product.product",
           "search",
           [[["default_code", "=", default_code]]]
         ]
       });
 
-      const ids = search.result;
+      const variantIds = searchVariant.result;
 
-      if (ids.length > 0) {
-        // -------------------------
-        // 🔵 ACTUALIZAR PRODUCTO
-        // -------------------------
-        const update = await odooCall({
+      // ---------------------------------------------------------
+      // 🟢 SI EXISTE → ACTUALIZAR
+      // ---------------------------------------------------------
+      if (variantIds.length > 0) {
+        const variantId = variantIds[0];
+
+        // 2. Leer plantilla asociada
+        const variantData = await odooCall({
+          service: "object",
+          method: "execute_kw",
+          args: [
+            ODOO_DB,
+            parseInt(ODOO_UID),
+            ODOO_PASSWORD,
+            "product.product",
+            "read",
+            [[variantId]],
+            { fields: ["product_tmpl_id"] }
+          ]
+        });
+
+        const templateId = variantData.result[0].product_tmpl_id[0];
+
+        // 3. Actualizar plantilla
+        const updateTemplate = await odooCall({
           service: "object",
           method: "execute_kw",
           args: [
@@ -64,14 +88,31 @@ router.post("/", async (req, res) => {
             "product.template",
             "write",
             [
-              ids,
+              [templateId],
               {
                 name,
                 list_price,
                 standard_price,
-                taxes_id: taxes_id ? [[6, false, taxes_id]] : undefined,
-                supplier_taxes_id: supplier_taxes_id ? [[6, false, supplier_taxes_id]] : undefined
+                taxes_id: m2m(taxes_id),
+                supplier_taxes_id: m2m(supplier_taxes_id)
               }
+            ]
+          ]
+        });
+
+        // 4. Actualizar variante (para que el nombre se vea en la interfaz)
+        const updateVariant = await odooCall({
+          service: "object",
+          method: "execute_kw",
+          args: [
+            ODOO_DB,
+            parseInt(ODOO_UID),
+            ODOO_PASSWORD,
+            "product.product",
+            "write",
+            [
+              [variantId],
+              { name }
             ]
           ]
         });
@@ -79,43 +120,45 @@ router.post("/", async (req, res) => {
         results.push({
           default_code,
           action: "updated",
-          id: ids[0],
-          success: update.result
+          templateId,
+          variantId,
+          success: updateTemplate.result && updateVariant.result
         });
 
-      } else {
-        // -------------------------
-        // 🟢 CREAR PRODUCTO NUEVO
-        // -------------------------
-        const create = await odooCall({
-          service: "object",
-          method: "execute_kw",
-          args: [
-            ODOO_DB,
-            parseInt(ODOO_UID),
-            ODOO_PASSWORD,
-            "product.template",
-            "create",
-            [
-              {
-                default_code,
-                name,
-                list_price,
-                standard_price,
-                taxes_id: taxes_id ? [[6, false, taxes_id]] : [],
-                supplier_taxes_id: supplier_taxes_id ? [[6, false, supplier_taxes_id]] : []
-              }
-            ]
-          ]
-        });
-
-        results.push({
-          default_code,
-          action: "created",
-          id: create.result,
-          success: true
-        });
+        continue;
       }
+
+      // ---------------------------------------------------------
+      // 🟢 SI NO EXISTE → CREAR
+      // ---------------------------------------------------------
+      const createTemplate = await odooCall({
+        service: "object",
+        method: "execute_kw",
+        args: [
+          ODOO_DB,
+          parseInt(ODOO_UID),
+          ODOO_PASSWORD,
+          "product.template",
+          "create",
+          [
+            {
+              default_code,
+              name,
+              list_price,
+              standard_price,
+              taxes_id: m2m(taxes_id),
+              supplier_taxes_id: m2m(supplier_taxes_id)
+            }
+          ]
+        ]
+      });
+
+      results.push({
+        default_code,
+        action: "created",
+        templateId: createTemplate.result,
+        success: true
+      });
 
     } catch (err) {
       results.push({

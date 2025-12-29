@@ -41,7 +41,7 @@ router.get("/", async (req, res) => {
         ODOO_DB,
         parseInt(ODOO_UID),
         ODOO_PASSWORD,
-        "product.template",
+        "product.product",
         "search",
         [[]]
       ]
@@ -56,7 +56,7 @@ router.get("/", async (req, res) => {
         ODOO_DB,
         parseInt(ODOO_UID),
         ODOO_PASSWORD,
-        "product.template",
+        "product.product",
         "read",
         [ids],
         { fields }
