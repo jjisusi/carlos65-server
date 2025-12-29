@@ -43,7 +43,7 @@ router.get("/", async (req, res) => {
         ODOO_PASSWORD,
         "product.template",
         "search",
-        [[]]
+        [[["active", "=", true]]]
       ]
     });
 

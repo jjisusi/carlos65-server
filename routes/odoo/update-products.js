@@ -38,46 +38,28 @@ router.post("/", async (req, res) => {
     const { default_code, name, list_price, standard_price, taxes_id, supplier_taxes_id } = p;
 
     try {
-      // 1. Buscar variante por default_code
-      const searchVariant = await odooCall({
+      // 1. Buscar plantilla por default_code
+      const searchTemplate = await odooCall({
         service: "object",
         method: "execute_kw",
         args: [
           ODOO_DB,
           parseInt(ODOO_UID),
           ODOO_PASSWORD,
-          "product.product",
+          "product.template",
           "search",
           [[["default_code", "=", default_code]]]
         ]
       });
 
-      const variantIds = searchVariant.result;
+      const templateIds = searchTemplate.result;
 
       // ---------------------------------------------------------
       // 🟢 SI EXISTE → ACTUALIZAR
       // ---------------------------------------------------------
-      if (variantIds.length > 0) {
-        const variantId = variantIds[0];
+      if (templateIds.length > 0) {
+        const templateId = templateIds[0];
 
-        // 2. Leer plantilla asociada
-        const variantData = await odooCall({
-          service: "object",
-          method: "execute_kw",
-          args: [
-            ODOO_DB,
-            parseInt(ODOO_UID),
-            ODOO_PASSWORD,
-            "product.product",
-            "read",
-            [[variantId]],
-            { fields: ["product_tmpl_id"] }
-          ]
-        });
-
-        const templateId = variantData.result[0].product_tmpl_id[0];
-
-        // 3. Actualizar plantilla
         const updateTemplate = await odooCall({
           service: "object",
           method: "execute_kw",
@@ -100,29 +82,11 @@ router.post("/", async (req, res) => {
           ]
         });
 
-        // 4. Actualizar variante (para que el nombre se vea en la interfaz)
-        const updateVariant = await odooCall({
-          service: "object",
-          method: "execute_kw",
-          args: [
-            ODOO_DB,
-            parseInt(ODOO_UID),
-            ODOO_PASSWORD,
-            "product.product",
-            "write",
-            [
-              [variantId],
-              { name }
-            ]
-          ]
-        });
-
         results.push({
           default_code,
           action: "updated",
           templateId,
-          variantId,
-          success: updateTemplate.result && updateVariant.result
+          success: updateTemplate.result
         });
 
         continue;
@@ -152,14 +116,6 @@ router.post("/", async (req, res) => {
           ]
         ]
       });
-
-      results.push({
-        default_code,
-        action: "created",
-        templateId: createTemplate.result,
-        success: true
-      });
-
     } catch (err) {
       results.push({
         default_code,
