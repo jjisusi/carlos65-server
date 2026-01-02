@@ -17,9 +17,7 @@
     "express": "^5.2.1",
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
-    "pdf-lib": "^1.17.1",
-    "pdf-parse": "^2.4.5",
-    "pdf2pic": "^3.2.0",
+    "pdfjs-dist": "^5.4.530",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0"
   },
